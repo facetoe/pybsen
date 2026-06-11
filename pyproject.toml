@@ -19,8 +19,13 @@ dev = [
     "mypy>=1.10",
     "pre-commit>=3",
 ]
+# No additional Python packages required for the capture tools — only the
+# `adb` binary must be present on PATH.
+capture = []
 
 [tool.setuptools.packages.find]
+# tools/ is intentionally excluded: it is run directly from the repo root
+# with `python -m tools.capture` and is not part of the installed library.
 include = ["pybsen*"]
 
 [tool.ruff]

@@ -12,7 +12,7 @@ from datetime import datetime
 import pytest
 
 from pybsen.frame import parse_rbus_frames
-from pybsen.models import AlarmState, BatteryState
+from pybsen.models import AlarmState, BatteryState, ChargeDirection
 from pybsen.pgn import decode
 from tests.fixtures import (
     NET_CURRENT_SCALE_POINTS,
@@ -129,6 +129,7 @@ def test_decode_sequence_final_state(
     battery, alarms = decode_sequence(SEQUENCE_A_CHARGING)
     assert battery.soc_pct == 99
     assert battery.net_current_a == pytest.approx(0.5)
+    assert battery.charge_direction == ChargeDirection.CHARGING
     assert battery.voltage_v == pytest.approx(13.3)
     assert battery.temp_c == pytest.approx(7.0)
     assert battery.charge_state == 1
@@ -179,6 +180,29 @@ def test_time_remaining_scale_points(raw_u16: int, expected_min: int) -> None:
         # Zero-crossover: both should be None
         assert battery.time_to_full_min is None
         assert battery.time_to_flat_min is None
+
+
+# ---------------------------------------------------------------------------
+# Charge direction
+# ---------------------------------------------------------------------------
+
+
+class TestChargeDirection:
+    def test_positive_current_is_charging(self) -> None:
+        battery, _ = _decode_notify(_make_f280_notify(10005), BatteryState(), AlarmState())  # +0.5 A
+        assert battery.charge_direction == ChargeDirection.CHARGING
+
+    def test_negative_current_is_discharging(self) -> None:
+        battery, _ = _decode_notify(_make_f280_notify(9856), BatteryState(), AlarmState())  # −14.4 A
+        assert battery.charge_direction == ChargeDirection.DISCHARGING
+
+    def test_zero_current_is_charging(self) -> None:
+        battery, _ = _decode_notify(_make_f280_notify(10000), BatteryState(), AlarmState())  # 0.0 A
+        assert battery.charge_direction == ChargeDirection.CHARGING
+
+    def test_sentinel_current_gives_none_direction(self) -> None:
+        battery, _ = _decode_notify(_make_f280_notify(20000), BatteryState(), AlarmState())  # sentinel
+        assert battery.charge_direction is None
 
 
 # ---------------------------------------------------------------------------

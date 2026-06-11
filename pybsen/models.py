@@ -5,8 +5,21 @@ Use model_copy(update={...}) to produce updated states.
 """
 
 from datetime import datetime
+from enum import Enum
 
 from pydantic import BaseModel, ConfigDict
+
+
+class ChargeDirection(str, Enum):
+    """Whether the battery is net-charging or net-discharging.
+
+    Derived from the sign of net_current_a (F2:80).  None until the first
+    F2:80 frame is decoded.  str mixin ensures JSON-serialisable without
+    custom encoders.
+    """
+
+    CHARGING = "charging"
+    DISCHARGING = "discharging"
 
 
 class BatteryState(BaseModel):
@@ -20,6 +33,7 @@ class BatteryState(BaseModel):
     time_to_full_min: int | None = None
     time_to_flat_min: int | None = None
     net_current_a: float | None = None
+    charge_direction: ChargeDirection | None = None
     voltage_v: float | None = None
     temp_c: float | None = None
     charge_state: int | None = None

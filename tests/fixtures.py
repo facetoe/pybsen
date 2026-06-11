@@ -39,6 +39,8 @@ Field mapping — confirmed from blutter ASM tracing 2026-06-10 (BLUTTER_FINDING
   Alarm setpoints   : (0xF1,0x0A) payload[1]=SOC%, payload[2-3]=voltage×0.001 V
 """
 
+from pybsen.models import ChargeDirection
+
 # ---------------------------------------------------------------------------
 # Session A  –  charging +0.5A, voltage 13.385V (F1:02) / 13.3V (F2:80), SOC 99%
 #               temperature 7°C  (app screenshot 2026-06-10 11:08)
@@ -127,6 +129,7 @@ SEQUENCE_A_CHARGING = [
     (NOTIFY_A_VOLTAGE, "voltage_V", 13.385),
     # F2:80: net current +0.5 A, voltage 13.3 V (primary, overwrites), temp 7°C
     (NOTIFY_A_CURRENT, "net_current_A", 0.5),  # (10005−10000)×0.1
+    (NOTIFY_A_CURRENT, "charge_direction", ChargeDirection.CHARGING),
     (NOTIFY_A_CURRENT, "voltage_V", 13.3),  # 133×0.1
     (NOTIFY_A_CURRENT, "temp_c", 7.0),  # 67−60
     # F1:0A: alarm status — both off; setpoints present
@@ -155,6 +158,7 @@ SEQUENCE_3_DISCHARGING = [
 SEQUENCE_B_LESS_CHARGING = [
     # F2:80: net current −7.6 A (loads > solar despite positive charger direction label in session name)
     (NOTIFY_B_CURRENT, "net_current_A", -7.6),  # (9924−10000)×0.1
+    (NOTIFY_B_CURRENT, "charge_direction", ChargeDirection.DISCHARGING),
     (NOTIFY_B_CURRENT, "voltage_V", 13.2),  # 132×0.1
     (NOTIFY_B_VOLTAGE, "voltage_V", 13.214),  # F1:02 secondary: 13214 mV
 ]
@@ -179,6 +183,7 @@ NOTIFY_C_SOC = bytes.fromhex("a0f1043688" + "62ffb77cffffffff")
 
 SEQUENCE_C_CHARGING = [
     (NOTIFY_C_CURRENT, "net_current_A", -16.3),  # (9837−10000)×0.1
+    (NOTIFY_C_CURRENT, "charge_direction", ChargeDirection.DISCHARGING),
     (NOTIFY_C_CURRENT, "voltage_V", 13.1),  # 131×0.1
     (NOTIFY_C_CURRENT, "temp_c", 10.0),  # 70−60
     (NOTIFY_C_VOLTAGE, "voltage_V", 13.143),  # F1:02 secondary: 13143 mV
@@ -214,6 +219,7 @@ SEQUENCE_D_DISCHARGING = [
     (NOTIFY_D_VOLTAGE, "voltage_V", 13.151),  # F1:02: 13151 mV
     # F2:80 is the authoritative current source (blutter confirmed)
     (NOTIFY_D_CHARGER, "net_current_A", -14.4),  # (9856−10000)×0.1
+    (NOTIFY_D_CHARGER, "charge_direction", ChargeDirection.DISCHARGING),
     (NOTIFY_D_CHARGER, "voltage_V", 13.1),  # 131×0.1
     (NOTIFY_D_CHARGER, "temp_c", 12.0),  # 72−60
 ]
@@ -253,6 +259,7 @@ NOTIFY_E_CHARGESTATE = bytes.fromhex("a0f1003688041801ff630c01ff")
 SEQUENCE_E_DISCHARGING = [
     # F2:80: current/voltage/temperature (primary authoritative source)
     (NOTIFY_E_CURRENT, "net_current_A", -10.8),  # (9892−10000)×0.1
+    (NOTIFY_E_CURRENT, "charge_direction", ChargeDirection.DISCHARGING),
     (NOTIFY_E_CURRENT, "voltage_V", 13.2),  # 132×0.1
     (NOTIFY_E_CURRENT, "temp_c", 15.0),  # 75−60  (confirmed vs app)
     # F1:04: SOC and time to flat

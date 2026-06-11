@@ -90,7 +90,8 @@ class BsenClient:
         self._client: BleakClient | None = None
         self._battery = BatteryState()
         self._alarms = AlarmState()
-        self._queue: asyncio.Queue[tuple[BatteryState, AlarmState]] | None = None
+        self._queue: asyncio.Queue[tuple[BatteryState, AlarmState] | None] | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
 
     async def connect(self) -> None:
         """Scan for the device, connect, and run the initialization sequence.
@@ -105,8 +106,12 @@ class BsenClient:
         if device is None:
             raise BsenTimeoutError(f"Device {self._address} not found during scan")
 
+        self._loop = asyncio.get_running_loop()
+
         def _on_disconnect(_: Any) -> None:
             _log.info("Device disconnected: %s", self._address)
+            if self._queue is not None and self._loop is not None:
+                self._loop.call_soon_threadsafe(self._queue.put_nowait, None)
 
         client = BleakClient(device, disconnected_callback=_on_disconnect)
         try:
@@ -138,17 +143,26 @@ class BsenClient:
         await self._client.disconnect()
         self._client = None
 
+    @property
+    def battery(self) -> BatteryState:
+        """Most recently decoded BatteryState. Fields are None until the relevant PGN arrives."""
+        return self._battery
+
     async def stream(self) -> AsyncGenerator[tuple[BatteryState, AlarmState], None]:
         """Yield (BatteryState, AlarmState) tuples on each state-updating notification.
 
         Must be called after connect().  Yields until the caller breaks or the
-        client is disconnected.
+        client is disconnected.  Exits cleanly when the BLE connection drops
+        (the disconnected callback injects a None sentinel into the queue).
         """
-        queue: asyncio.Queue[tuple[BatteryState, AlarmState]] = asyncio.Queue()
+        queue: asyncio.Queue[tuple[BatteryState, AlarmState] | None] = asyncio.Queue()
         self._queue = queue
         try:
             while True:
-                yield await queue.get()
+                item = await queue.get()
+                if item is None:
+                    return  # BLE disconnected — exit generator cleanly
+                yield item
         finally:
             self._queue = None
 

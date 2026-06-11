@@ -12,7 +12,7 @@ from typing import Any
 
 from pybsen.frame import RawFrame
 from pybsen.kaitai.rbus_frame import RbusFrame  # type: ignore[attr-defined]
-from pybsen.models import AlarmState, BatteryState
+from pybsen.models import AlarmState, BatteryState, ChargeDirection
 
 _PGN_F100 = 0xF100
 _PGN_F102 = 0xF102
@@ -65,9 +65,14 @@ def _decode_f280(kf: Any, battery: BatteryState) -> BatteryState:
     voltage_v: float | None = None if raw_voltage == 643 else float(p.voltage_v)
     temp_c: float | None = None if raw_temp == 0xFA else float(p.temp_c)
 
+    charge_direction: ChargeDirection | None = None
+    if net_current_a is not None:
+        charge_direction = ChargeDirection.CHARGING if net_current_a >= 0.0 else ChargeDirection.DISCHARGING
+
     return battery.model_copy(
         update={
             "net_current_a": net_current_a,
+            "charge_direction": charge_direction,
             "voltage_v": voltage_v,
             "temp_c": temp_c,
             "timestamp": datetime.now(),
