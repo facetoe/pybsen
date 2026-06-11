@@ -11,11 +11,11 @@ Usage::
 
 import asyncio
 import logging
-import sys
 from collections.abc import AsyncGenerator
 from typing import Any
 
 from bleak import BleakClient, BleakScanner
+from bleak.backends.device import BLEDevice
 
 from pybsen.exceptions import BsenConnectionError, BsenTimeoutError
 from pybsen.frame import parse_rbus_frames
@@ -93,31 +93,22 @@ class BsenClient:
         self._queue: asyncio.Queue[tuple[BatteryState, AlarmState]] | None = None
 
     async def connect(self) -> None:
-        """Connect to the device and run the initialization sequence.
+        """Scan for the device, connect, and run the initialization sequence.
 
-        On Linux, issues a ``bluetoothctl connect`` pre-connect first to
-        complete the BlueZ encryption handshake before GATT operations.
-        Raises BsenConnectionError on failure, BsenTimeoutError on timeout.
+        Raises BsenTimeoutError if the device is not found within the scan
+        timeout.  Raises BsenConnectionError if the GATT connection fails.
         """
-        if sys.platform == "linux":
-            ok = await self._bluez_connect(self._address)
-            if not ok:
-                _log.warning("bluetoothctl pre-connect failed; attempting bleak connect anyway")
-
         _log.info("Scanning for %s ...", self._address)
-        try:
-            device = await BleakScanner.find_device_by_address(self._address, timeout=15.0)
-        except TimeoutError as exc:
-            raise BsenTimeoutError(f"Scan timeout for {self._address}") from exc
-
-        target: Any = device if device is not None else self._address
+        device: BLEDevice | None = await BleakScanner.find_device_by_address(
+            self._address, timeout=15.0
+        )
         if device is None:
-            _log.info("Not found in scan — attempting direct connect to %s", self._address)
+            raise BsenTimeoutError(f"Device {self._address} not found during scan")
 
         def _on_disconnect(_: Any) -> None:
             _log.info("Device disconnected: %s", self._address)
 
-        client = BleakClient(target, disconnected_callback=_on_disconnect)
+        client = BleakClient(device, disconnected_callback=_on_disconnect)
         try:
             await client.connect()
         except Exception as exc:
@@ -186,31 +177,3 @@ class BsenClient:
         _log.debug("Init: gateway rbusAddress query")
         await client.write_gatt_char(CHAR_2015_8003, bytearray(GW_RBUS_ADDR), response=False)
         await asyncio.sleep(0.3)
-
-    @staticmethod
-    async def _bluez_connect(mac: str, timeout: float = 15.0) -> bool:
-        """Issue ``bluetoothctl connect`` to resolve the BlueZ encryption handshake.
-
-        Without this step, the BSEN500 drops the GATT connection during
-        service discovery on Linux/BlueZ (see docs/protocol.md §1.2).
-        """
-        _log.debug("bluetoothctl connect %s (pre-connect for encryption handshake)", mac)
-        proc = await asyncio.create_subprocess_exec(
-            "bluetoothctl",
-            "connect",
-            mac,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-        )
-        try:
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-            output = stdout.decode(errors="replace")
-            _log.debug("bluetoothctl: %s", output.strip())
-            success = "Connection successful" in output
-            if success:
-                await asyncio.sleep(1.5)
-            return success
-        except TimeoutError:
-            proc.kill()
-            _log.warning("bluetoothctl connect timed out for %s", mac)
-            return False
