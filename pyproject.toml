@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pybsen"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "bleak>=0.21",
+    "kaitaistruct>=0.10",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "ruff>=0.4",
+    "mypy>=1.10",
+    "pre-commit>=3",
+]
+
+[tool.setuptools.packages.find]
+include = ["pybsen*"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+# Exclude Kaitai Struct generated parsers — machine-generated, not hand-maintained.
+exclude = ["pybsen/kaitai/*.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true
+
+# Kaitai Struct generated parsers use untyped patterns; exclude from strict checking.
+[[tool.mypy.overrides]]
+module = "pybsen.kaitai.*"
+ignore_errors = true

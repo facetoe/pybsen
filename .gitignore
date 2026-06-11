@@ -1,0 +1,35 @@
+# Virtual environment
+.venv/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Type checker
+.mypy_cache/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# pre-commit
+.pre-commit-cache/
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*~
