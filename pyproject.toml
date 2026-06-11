@@ -9,6 +9,7 @@ requires-python = ">=3.11"
 dependencies = [
     "bleak>=0.21",
     "kaitaistruct>=0.10",
+    "pydantic>=2.0",
 ]
 
 [project.optional-dependencies]
