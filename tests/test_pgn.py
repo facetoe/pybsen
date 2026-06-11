@@ -290,6 +290,14 @@ class TestAlarmState:
         assert alarms.soc_alarm_active is False
         assert alarms.voltage_alarm_active is True
 
+    def test_alarm_active_both_simultaneously(self) -> None:
+        # 0xF5 = 0b11110101: bits[1:0]=01 (SOC active), bits[3:2]=01 (voltage active)
+        header = bytes([0xA0, 0xF1, 0x0A, 0x36, 0x88])
+        payload = struct.pack("<BBHBBBB", 0xF5, 14, 11500, 0xFF, 0xFF, 0xFF, 0xFF)
+        _, alarms = _decode_notify(header + payload, BatteryState(), AlarmState())
+        assert alarms.soc_alarm_active is True
+        assert alarms.voltage_alarm_active is True
+
 
 # ---------------------------------------------------------------------------
 # Immutability
@@ -358,3 +366,105 @@ class TestTimestamp:
         # F1:00 only updates charge_state
         battery, _ = _decode_notify(NOTIFY_A_CHARGESTATE, BatteryState(), AlarmState())
         assert battery.timestamp is None
+
+
+# ---------------------------------------------------------------------------
+# State of health — non-sentinel decode
+#
+# Every live capture has SoH=0xFF (not available).  The decode branch for a
+# real SoH value (pgn.py: `None if raw_soh == 0xFF else raw_soh`) has not
+# been exercised by any fixture until now.
+# ---------------------------------------------------------------------------
+
+
+def _make_f104_with_soh(soc: int, soh: int, raw_time: int) -> bytes:
+    """Construct an F1:04 notification with explicit soh byte (unlike _make_f104_notify which hardcodes 0xFF)."""
+    header = bytes([0xA0, 0xF1, 0x04, 0x36, 0x88])
+    payload = struct.pack("<BBH", soc, soh, raw_time) + bytes([0xFF, 0xFF, 0xFF, 0xFF])
+    return header + payload
+
+
+class TestStateOfHealth:
+    def test_soh_non_sentinel_decoded(self) -> None:
+        battery, _ = _decode_notify(_make_f104_with_soh(soc=99, soh=85, raw_time=32127), BatteryState(), AlarmState())
+        assert battery.state_of_health_pct == 85
+
+    def test_soh_boundary_value_one(self) -> None:
+        battery, _ = _decode_notify(_make_f104_with_soh(soc=99, soh=1, raw_time=32127), BatteryState(), AlarmState())
+        assert battery.state_of_health_pct == 1
+
+    def test_soh_full_health(self) -> None:
+        battery, _ = _decode_notify(_make_f104_with_soh(soc=99, soh=100, raw_time=32127), BatteryState(), AlarmState())
+        assert battery.state_of_health_pct == 100
+
+    def test_soh_sentinel_gives_none(self) -> None:
+        battery, _ = _decode_notify(_make_f104_with_soh(soc=99, soh=0xFF, raw_time=32127), BatteryState(), AlarmState())
+        assert battery.state_of_health_pct is None
+
+
+# ---------------------------------------------------------------------------
+# Temperature — negative and zero values
+#
+# Formula: raw − 60 °C.  Tested values so far are 67/70/72/75 (all positive).
+# raw < 60 produces negative °C (valid cold temperatures).  raw == 60 → 0°C.
+# ---------------------------------------------------------------------------
+
+
+def _make_f280_with_temp(raw_temp: int) -> bytes:
+    header = bytes([0xA0, 0xF2, 0x80, 0x36, 0x88])
+    payload = struct.pack("<HHHB", 10005, 133, 0xFFFF, raw_temp) + b"\xff"
+    return header + payload
+
+
+class TestTemperature:
+    def test_zero_celsius(self) -> None:
+        # raw=60 → 60−60 = 0°C
+        battery, _ = _decode_notify(_make_f280_with_temp(60), BatteryState(), AlarmState())
+        assert battery.temp_c == pytest.approx(0.0)
+
+    def test_negative_celsius(self) -> None:
+        # raw=55 → 55−60 = −5°C
+        battery, _ = _decode_notify(_make_f280_with_temp(55), BatteryState(), AlarmState())
+        assert battery.temp_c == pytest.approx(-5.0)
+
+    def test_minimum_raw_zero(self) -> None:
+        # raw=0 → 0−60 = −60°C (extreme cold, not a sentinel)
+        battery, _ = _decode_notify(_make_f280_with_temp(0), BatteryState(), AlarmState())
+        assert battery.temp_c == pytest.approx(-60.0)
+
+
+# ---------------------------------------------------------------------------
+# Unknown / no-op PGN dispatch
+#
+# decode() silently returns (battery, alarms) unchanged for unrecognised PGN
+# keys.  Both named-but-unhandled PGNs (F3:04, F4:04) and completely unknown
+# PGNs (F1:06) should be no-ops.
+# ---------------------------------------------------------------------------
+
+
+class TestUnknownPgn:
+    def test_f304_rtc_leaves_battery_unchanged(self) -> None:
+        # F3:04 is parsed by Kaitai but not handled in pgn.decode()
+        header = bytes([0xA0, 0xF3, 0x04, 0x36, 0x88])
+        payload = struct.pack("<BBHBBBx", 0x01, 6, 2026, 14, 8, 0)
+        battery_in = BatteryState(soc_pct=99, voltage_v=13.3)
+        battery_out, _ = _decode_notify(header + payload, battery_in, AlarmState())
+        assert battery_out is battery_in
+
+    def test_f404_device_info_leaves_battery_unchanged(self) -> None:
+        # F4:04 device info — constant payload, no domain model fields
+        header = bytes([0xA0, 0xF4, 0x04, 0x36, 0x88])
+        payload = bytes.fromhex("5f6d5b8f14001800")
+        battery_in = BatteryState(soc_pct=88, net_current_a=-10.8)
+        battery_out, _ = _decode_notify(header + payload, battery_in, AlarmState())
+        assert battery_out is battery_in
+
+    def test_completely_unknown_pgn_leaves_state_unchanged(self) -> None:
+        # F1:06 — listed in PgnUnknown docstring as "not yet implemented"
+        header = bytes([0xA0, 0xF1, 0x06, 0x36, 0x88])
+        payload = bytes([0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08])
+        battery_in = BatteryState(soc_pct=50)
+        alarms_in = AlarmState(soc_alarm_active=True)
+        battery_out, alarms_out = _decode_notify(header + payload, battery_in, alarms_in)
+        assert battery_out is battery_in
+        assert alarms_out is alarms_in
