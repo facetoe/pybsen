@@ -6,6 +6,8 @@ Connects over BLE, runs the device's proprietary R-Bus initialization sequence, 
 
 > **Note:** The R-Bus protocol is reverse-engineered from the RedVision Android app. No public specification exists. See [`docs/protocol.md`](docs/protocol.md) for the full protocol reference.
 
+> **Note:** This was vibe coded, YMMV
+
 ---
 
 ## Requirements
